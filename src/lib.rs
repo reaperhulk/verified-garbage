@@ -12,6 +12,9 @@
 
 mod asm;
 
+#[cfg(target_arch = "x86_64")]
+pub mod sha256;
+
 #[cfg(test)]
 mod tests {
     /// The pipeline self-test artifact (`VG.Spec.Selftest.addX86_64`).
