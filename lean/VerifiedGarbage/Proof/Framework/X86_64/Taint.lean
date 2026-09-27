@@ -65,8 +65,10 @@ def step (τ : T) : Instr → Option T
   | .alu op d src | .alu32 op d src => aluStep τ op d src
   -- The result is a function of the old value of `d`, and so are the
   -- flags that change.
-  | .shift32 _ d _ => some ⟨τ.regs, τ.flags && pub τ d⟩
-  | .bswap32 _ => some τ
+  | .shift32 _ d _ | .shift _ d _ => some ⟨τ.regs, τ.flags && pub τ d⟩
+  | .bswap32 _ | .bswap _ => some τ
+  -- An immediate is public.
+  | .movImm64 d _ => some ⟨set τ d true, τ.flags⟩
 
 def meet (τ₁ τ₂ : T) : T := ⟨τ₁.regs.filter (pub τ₂), τ₁.flags && τ₂.flags⟩
 
@@ -326,6 +328,40 @@ theorem step_sound {τ τ' : T} {i : Instr} {s₁ s₂ s₁' s₂' : State} (ha 
     by_cases hrd : r = d
     · subst hrd; simp [State.setReg32, State.setReg, ha.1 r hr]
     · simp [State.setReg32, State.setReg, hrd, ha.1 r hr]
+  | shift op d n =>
+    simp only [step, Option.some.injEq] at hs
+    subst hs
+    by_cases hn : 1 ≤ n ∧ n ≤ 63
+    swap; · simp [exec, execShift, hn] at e₁
+    simp only [exec, execShift, hn, and_self, ite_true] at e₁ e₂
+    refine ⟨rfl, fun r hr => ?_, fun hf => ?_⟩
+    · by_cases hrd : r = d
+      · subst hrd
+        have := ha.1 r hr
+        cases op <;> simp only [Option.some.injEq] at e₁ e₂ <;> subst e₁ e₂ <;>
+          simp [State.setReg, this]
+      · cases op <;> simp only [Option.some.injEq] at e₁ e₂ <;> subst e₁ e₂ <;>
+          simp [State.setReg, State.setFlags, hrd, ha.1 r hr]
+    · simp only [Bool.and_eq_true] at hf
+      have hd := ha.reg hf.2
+      have hfl := ha.2 hf.1
+      cases op <;> simp only [Option.some.injEq] at e₁ e₂ <;> subst e₁ e₂ <;>
+        simp [State.setFlags, hd, hfl]
+  | bswap d =>
+    simp only [step, Option.some.injEq] at hs
+    subst hs
+    simp only [exec, Option.some.injEq] at e₁ e₂
+    subst e₁ e₂
+    refine ⟨rfl, fun r hr => ?_, fun hf => by simpa using ha.2 hf⟩
+    by_cases hrd : r = d
+    · subst hrd; simp [State.setReg, ha.1 r hr]
+    · simp [State.setReg, hrd, ha.1 r hr]
+  | movImm64 d v =>
+    simp only [step, Option.some.injEq] at hs
+    subst hs
+    simp only [exec, Option.some.injEq] at e₁ e₂
+    subst e₁ e₂
+    exact ⟨rfl, regs_set (p := true) ha.1 fun _ => rfl, ha.2⟩
 
 theorem cond_sound {τ : T} {c : Cond} {s₁ s₂ : State} (ha : Agree τ s₁ s₂)
     (hc : τ.flags = true) : eval c s₁ = eval c s₂ := by
