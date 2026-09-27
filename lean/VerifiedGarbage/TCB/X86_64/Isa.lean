@@ -83,6 +83,14 @@ inductive Instr
   | shift32 (op : ShiftOp) (dst : Reg) (count : Nat)
   /-- `bswap r32` -/
   | bswap32 (dst : Reg)
+  /-- `op r64, count` (64-bit) with an immediate count. Only counts `1 ≤ count ≤ 63`
+  are modelled; any other count faults. -/
+  | shift (op : ShiftOp) (dst : Reg) (count : Nat)
+  /-- `bswap r64` -/
+  | bswap (dst : Reg)
+  /-- `movabs r64, imm64`: `MOV r64, imm64` (REX.W + B8+rd io), a full 64-bit
+  immediate. -/
+  | movImm64 (dst : Reg) (v : BitVec 64)
   deriving DecidableEq, Repr
 
 /-- Branch conditions (`jcc` suffixes). -/
@@ -237,6 +245,38 @@ DEST[23:16] := TEMP[15:8]; DEST[31:24] := TEMP[7:0]` for a 32-bit operand
 def bswap32 (a : BitVec 32) : BitVec 32 :=
   a.extractLsb' 0 8 ++ a.extractLsb' 8 8 ++ a.extractLsb' 16 8 ++ a.extractLsb' 24 8
 
+/-- The 64-bit form of `execShift32` (the same SDM pseudocode), for a count
+`n` with `1 ≤ n ≤ 63` (so the masked count `n AND 3FH` is `n`; other counts
+fault):
+
+* ROR: the operand is rotated right by `n`; CF := MSB of the result; OF :=
+  MSB XOR MSB−1 of the result if `n = 1`, otherwise undefined; SF and ZF are
+  unaffected.
+* SHR: the operand is shifted right (logically) by `n`; CF := the last bit
+  shifted out (bit `n − 1` of the operand); OF := MSB of the original operand
+  if `n = 1`, otherwise undefined; SF and ZF are set according to the result.
+
+(AF and PF are not modelled.) -/
+def execShift (op : ShiftOp) (dst : Reg) (n : Nat) (s : State) : Option State :=
+  if 1 ≤ n ∧ n ≤ 63 then
+    let a := s.gpr dst
+    match op with
+    | .ror => let r := a.rotateRight n
+      some ((s.setFlags (some r.msb) (if n = 1 then some (r.msb ^^ r.getMsbD 1) else none)
+        s.zf s.sf).setReg dst r)
+    | .shr => let r := a >>> n
+      some ((s.setFlags (some (a.getLsbD (n - 1))) (if n = 1 then some a.msb else none)
+        (some (r == 0)) (some r.msb)).setReg dst r)
+  else none
+
+/-- SDM Vol. 2, "BSWAP", for a 64-bit operand (REX.W):
+`DEST[7:0] := TEMP[63:56]; DEST[15:8] := TEMP[55:48]; DEST[23:16] := TEMP[47:40];
+DEST[31:24] := TEMP[39:32]; DEST[39:32] := TEMP[31:24]; DEST[47:40] := TEMP[23:16];
+DEST[55:48] := TEMP[15:8]; DEST[63:56] := TEMP[7:0]`. No flags are affected. -/
+def bswap64 (a : BitVec 64) : BitVec 64 :=
+  a.extractLsb' 0 8 ++ a.extractLsb' 8 8 ++ a.extractLsb' 16 8 ++ a.extractLsb' 24 8 ++
+    a.extractLsb' 32 8 ++ a.extractLsb' 40 8 ++ a.extractLsb' 48 8 ++ a.extractLsb' 56 8
+
 def exec : Instr → State → Option State
   | .mov d src, s => (readSrc s src).map fun v => s.setReg d v
   | .store m r, s => s.store64 (s.ea m) (s.gpr r)
@@ -246,6 +286,10 @@ def exec : Instr → State → Option State
   | .alu32 op d src, s => execAlu32 op d src s
   | .shift32 op d n, s => execShift32 op d n s
   | .bswap32 d, s => some (s.setReg32 d (bswap32 ((s.gpr d).setWidth 32)))
+  | .shift op d n, s => execShift op d n s
+  | .bswap d, s => some (s.setReg d (bswap64 (s.gpr d)))
+  -- SDM Vol. 2, "MOV": `DEST := SRC`; no flags are affected.
+  | .movImm64 d v, s => some (s.setReg d v)
 
 def addrs : Instr → State → List Addr
   | .mov _ src, s => srcAddrs s src
@@ -256,6 +300,9 @@ def addrs : Instr → State → List Addr
   | .alu32 _ _ src, s => srcAddrs s src
   | .shift32 .., _ => []
   | .bswap32 _, _ => []
+  | .shift .., _ => []
+  | .bswap _, _ => []
+  | .movImm64 .., _ => []
 
 def eval : Cond → State → Option Bool
   | .e, s => s.zf

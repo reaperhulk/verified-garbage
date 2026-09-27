@@ -62,6 +62,10 @@ def Instr.asm : Instr → List String
   | .alu32 op d s => [s!"{op.name} {d.name32}, {s.str32}"]
   | .shift32 op d n => [s!"{op.name} {d.name32}, {n}"]
   | .bswap32 d => [s!"bswap {d.name32}"]
+  | .shift op d n => [s!"{op.name} {d.name}, {n}"]
+  | .bswap d => [s!"bswap {d.name}"]
+  -- `movabs` always selects the `REX.W + B8+rd io` encoding, whatever the value.
+  | .movImm64 d v => [s!"movabs {d.name}, {v.toInt}"]
 
 def Cond.name : Cond → String
   | .e => "e" | .ne => "ne" | .b => "b" | .ae => "ae"
