@@ -14,6 +14,8 @@ mod asm;
 
 #[cfg(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm"))]
 pub mod sha256;
+#[cfg(target_arch = "x86_64")]
+pub mod sha512;
 
 #[cfg(test)]
 mod tests {

@@ -28,10 +28,10 @@ fn unhex(s: &str) -> Vec<u8> {
         .collect()
 }
 
-/// Checks every `Len`/`Msg`/`MD` vector of a SHA-256 message test file, and
-/// returns how many there were.
-fn check_messages(text: &str) -> usize {
-    assert!(text.contains("[L = 32]"));
+/// Checks every `Len`/`Msg`/`MD` vector of a message test file for a hash
+/// function `digest` with `N`-byte digests, and returns how many there were.
+fn check_messages<const N: usize>(text: &str, digest: fn(&[u8]) -> [u8; N]) -> usize {
+    assert!(text.contains(&format!("[L = {N}]")));
     let fields = fields(text);
     assert_eq!(fields.len() % 3, 0);
     for v in fields.chunks(3) {
@@ -40,37 +40,19 @@ fn check_messages(text: &str) -> usize {
         let len: usize = v[0].1.parse().unwrap();
         assert_eq!(len % 8, 0);
         let msg = unhex(v[1].1);
-        assert_eq!(Sha256::digest(&msg[..len / 8])[..], unhex(v[2].1));
+        assert_eq!(digest(&msg[..len / 8])[..], unhex(v[2].1));
     }
     fields.len() / 3
 }
 
-/// Every message length from 0 to 64 bytes.
-#[test]
-fn sha256_short_messages() {
-    let n = check_messages(include_str!(
-        "../../vectors/nist-cavp/sha256/SHA256ShortMsg.rsp"
-    ));
-    assert_eq!(n, 65);
-}
-
-#[test]
-fn sha256_long_messages() {
-    let n = check_messages(include_str!(
-        "../../vectors/nist-cavp/sha256/SHA256LongMsg.rsp"
-    ));
-    assert_eq!(n, 64);
-}
-
-/// The SHAVS Monte Carlo test: 100 checkpoints, each after 1000 iterations
-/// of hashing the concatenation of the previous three digests.
-#[test]
-fn sha256_monte_carlo() {
-    let text = include_str!("../../vectors/nist-cavp/sha256/SHA256Monte.rsp");
-    assert!(text.contains("[L = 32]"));
+/// The SHAVS Monte Carlo test of a hash function `digest` with `N`-byte
+/// digests: 100 checkpoints, each after 1000 iterations of hashing the
+/// concatenation of the previous three digests.
+fn check_monte_carlo<const N: usize>(text: &str, digest: fn(&[u8]) -> [u8; N]) {
+    assert!(text.contains(&format!("[L = {N}]")));
     let fields = fields(text);
     assert_eq!(fields[0].0, "Seed");
-    let mut seed: [u8; 32] = unhex(fields[0].1).try_into().unwrap();
+    let mut seed: [u8; N] = unhex(fields[0].1).try_into().unwrap();
     let checkpoints = &fields[1..];
     assert_eq!(checkpoints.len(), 2 * 100);
     for (j, v) in checkpoints.chunks(2).enumerate() {
@@ -78,13 +60,97 @@ fn sha256_monte_carlo() {
         assert_eq!(v[0].1, j.to_string());
         let mut md = [seed; 3];
         for _ in 3..1003 {
-            let mut m = [0u8; 96];
-            m[..32].copy_from_slice(&md[0]);
-            m[32..64].copy_from_slice(&md[1]);
-            m[64..].copy_from_slice(&md[2]);
-            md = [md[1], md[2], Sha256::digest(&m)];
+            md = [md[1], md[2], digest(&md.concat())];
         }
         seed = md[2];
         assert_eq!(seed[..], unhex(v[1].1));
     }
+}
+
+/// Every message length from 0 to 64 bytes.
+#[test]
+fn sha256_short_messages() {
+    let n = check_messages(
+        include_str!("../../vectors/nist-cavp/sha256/SHA256ShortMsg.rsp"),
+        Sha256::digest,
+    );
+    assert_eq!(n, 65);
+}
+
+#[test]
+fn sha256_long_messages() {
+    let n = check_messages(
+        include_str!("../../vectors/nist-cavp/sha256/SHA256LongMsg.rsp"),
+        Sha256::digest,
+    );
+    assert_eq!(n, 64);
+}
+
+/// The SHAVS Monte Carlo test.
+#[test]
+fn sha256_monte_carlo() {
+    check_monte_carlo(
+        include_str!("../../vectors/nist-cavp/sha256/SHA256Monte.rsp"),
+        Sha256::digest,
+    );
+}
+
+/// SHA-384, SHA-512, SHA-512/224 and SHA-512/256: for each, every message
+/// length from 0 to 128 bytes, 128 long messages (from 227 to 12800 bytes)
+/// and the Monte Carlo test.
+#[cfg(target_arch = "x86_64")]
+mod sha512 {
+    use super::{check_messages, check_monte_carlo};
+    use verified_garbage::sha512::{Sha384, Sha512, Sha512_224, Sha512_256};
+
+    macro_rules! cavp {
+        ($name:ident, $hash:ident, $file:literal) => {
+            mod $name {
+                use super::*;
+
+                #[test]
+                fn short_messages() {
+                    let n = check_messages(
+                        include_str!(concat!(
+                            "../../vectors/nist-cavp/sha512/",
+                            $file,
+                            "ShortMsg.rsp"
+                        )),
+                        $hash::digest,
+                    );
+                    assert_eq!(n, 129);
+                }
+
+                #[test]
+                fn long_messages() {
+                    let n = check_messages(
+                        include_str!(concat!(
+                            "../../vectors/nist-cavp/sha512/",
+                            $file,
+                            "LongMsg.rsp"
+                        )),
+                        $hash::digest,
+                    );
+                    assert_eq!(n, 128);
+                }
+
+                #[test]
+                fn monte_carlo() {
+                    check_monte_carlo(
+                        include_str!(concat!(
+                            "../../vectors/nist-cavp/sha512/",
+                            $file,
+                            "Monte.rsp"
+                        )),
+                        $hash::digest,
+                    );
+                }
+            }
+        };
+    }
+
+    cavp!(sha384, Sha384, "SHA384");
+    cavp!(sha512, Sha512, "SHA512");
+    cavp!(sha512_224, Sha512_224, "SHA512_224");
+    cavp!(sha512_256, Sha512_256, "SHA512_256");
 }

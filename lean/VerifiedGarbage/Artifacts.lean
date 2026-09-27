@@ -2,6 +2,7 @@ import VerifiedGarbage.TCB.Axioms
 import VerifiedGarbage.TCB.Rust
 import VerifiedGarbage.Proof.Selftest.X86_64
 import VerifiedGarbage.Proof.Sha256.X86_64.Compress
+import VerifiedGarbage.Proof.Sha512.X86_64.Compress
 import VerifiedGarbage.Proof.Sha256.AArch64.Compress
 import VerifiedGarbage.Proof.Sha256.Arm.Compress
 import VerifiedGarbage.Proof.Sha256.X86_64.Stream.Init
@@ -121,6 +122,25 @@ def artifacts : List Artifact := [
     code := Impl.Sha256.X86_64.Stream.finalize
     contract := Spec.Sha256.finalizeX86_64
     verified := Proof.Sha256.X86_64.Stream.Finalize.finalize_verified },
+  { target := X86_64.target
+    module := "sha512"
+    name := "vg_sha512_compress"
+    rustSig := "(state: *mut [u64; 8], blocks: *const u8, n: usize, scratch: *mut [u64; 22])"
+    doc := "The SHA-512 compression function (FIPS 180-4 §6.4.2), shared by SHA-384, SHA-512, \
+      SHA-512/224 and SHA-512/256: updates the hash value `*state` with the `n` 128-byte \
+      blocks starting at `blocks`, in order.\n\n\
+      Contract: `VG.Spec.Sha512.compressX86_64`. Constant time: only the pointers and `n` \
+      may affect timing, not the hash value or the blocks.\n\n\
+      # Safety\n\n\
+      * `state` must be valid for reads and writes of 64 bytes.\n\
+      * `blocks` must be valid for reads of `128 * n` bytes.\n\
+      * `scratch` must be valid for reads and writes of 176 bytes; its contents on \
+      return are unspecified.\n\
+      * These three regions must not overlap each other, nor the return address on the \
+      stack (distinct Rust objects never do)."
+    code := Impl.Sha512.X86_64.compress
+    contract := Spec.Sha512.compressX86_64
+    verified := Proof.Sha512.X86_64.compress_verified },
   { target := AArch64.target
     module := "sha256"
     name := "vg_sha256_compress"
