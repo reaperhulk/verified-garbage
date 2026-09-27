@@ -64,6 +64,32 @@ def sample32 : Prog isa := .block [
   "ret"
 ]
 
+/-- The 64-bit shifts, `bswap` and `movabs`, including an immediate ≥ 2⁶³. -/
+def sample64 : Prog isa := .block [
+  .shift .ror .rax 28,
+  .shift .ror .r15 1,
+  .shift .shr .rbx 63,
+  .shift .shr .r9 7,
+  .bswap .rdx,
+  .bswap .r12,
+  .movImm64 .rcx 0x428a2f98d728ae22,
+  .movImm64 .r13 0xb5c0fbcfec4d3b2f,
+  .movImm64 .rsi 1
+]
+
+#guard printer.function sample64 == [
+  "ror rax, 28",
+  "ror r15, 1",
+  "shr rbx, 63",
+  "shr r9, 7",
+  "bswap rdx",
+  "bswap r12",
+  "movabs rcx, 4794697086780616226",
+  "movabs r13, -5349999486874862801",
+  "movabs rsi, 1",
+  "ret"
+]
+
 #guard Rust.escape "ld1 {v0.4s}, [x1] \\ \"q\"" == "ld1 {{v0.4s}}, [x1] \\\\ \\\"q\\\""
 
 end VG.Test
